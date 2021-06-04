@@ -39,6 +39,8 @@ namespace StartTranscription
                 return;
             }
 
+            // If the message is not flagged for real time we execute the following"
+            // otherwise we directly write a message to the service bus to fetch in real time.
             await transcriptionHelper.StartTranscriptionAsync(message).ConfigureAwait(false);
         }
     }

@@ -235,6 +235,7 @@ namespace FetchTranscription
             var totalDurationTicks = new TimeSpan(0, 0, 0, 0, totalduration).Ticks;
             CombinedRecognizedPhrase combined = new CombinedRecognizedPhrase(0, totallexical, totalitn, totalmasked, totaldisplay, null);
             SpeechTranscript transcript = new SpeechTranscript(string.Empty, string.Empty, totalDurationTicks, totalduration.ToString(CultureInfo.InvariantCulture), new List<CombinedRecognizedPhrase> { combined }, recognizedPhrases);
+            var json = JsonConvert.SerializeObject(transcript);
         }
     }
 }
