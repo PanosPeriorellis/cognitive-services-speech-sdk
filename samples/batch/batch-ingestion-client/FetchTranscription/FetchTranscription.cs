@@ -30,6 +30,8 @@ namespace FetchTranscriptionFunction
             }
 
             var serviceBusMessage = TranscriptionStartedMessage.DeserializeMessage(message);
+
+            // here we pick up the message to view the flag, whether it is a real time fetch or batch.
             await TranscriptionProcessor.ProcessTranscriptionJobAsync(serviceBusMessage, log).ConfigureAwait(false);
         }
     }

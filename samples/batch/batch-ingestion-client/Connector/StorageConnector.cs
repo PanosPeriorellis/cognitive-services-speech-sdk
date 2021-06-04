@@ -135,6 +135,18 @@ namespace Connector
             await blockBlobClient.UploadAsync(stream, overwrite: true).ConfigureAwait(false);
         }
 
+        public async Task<byte[]> ReadBlobFromContainer(string blobName, string containerName)
+        {
+            BlobContainerClient containerClient = BlobServiceClient.GetBlobContainerClient(containerName);
+            BlobClient blobClient = containerClient.GetBlobClient(blobName);
+            using (var memoryStream = new MemoryStream())
+            {
+                blobClient.DownloadTo(memoryStream);
+                var length = memoryStream.Length;
+                return memoryStream.ToArray();
+            }
+        }
+
         public async Task MoveFileAsync(string inputContainerName,  string inputFileName, string outputContainerName, string outputFileName, bool keepSource, ILogger log)
         {
             log.LogInformation($"Start moving file {inputFileName} from container {inputContainerName} to {outputFileName} in container {outputContainerName}.");
