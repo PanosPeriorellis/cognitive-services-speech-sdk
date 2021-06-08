@@ -8,6 +8,7 @@ namespace FetchTranscription
     using System;
     using System.Collections.Generic;
     using System.Globalization;
+    using System.Threading;
     using System.Threading.Tasks;
     using Connector;
     using Microsoft.CognitiveServices.Speech;
@@ -22,24 +23,25 @@ namespace FetchTranscription
         /// </summary>
         private List<RealTimeUtt> FinalResultsCumulative = new List<RealTimeUtt>();
 
-        private byte[] wavFileName;
+        private int channel;
 
         private ILogger log;
 
         private byte[] channelContent;
 
-        private int channel;
+        private string fileSource;
 
         // The TaskCompletionSource must be rooted.
         // See https://blogs.msdn.microsoft.com/pfxteam/2011/10/02/keeping-async-methods-alive/ for details.
         private TaskCompletionSource<int> stopBaseRecognitionTaskCompletionSource;
 
-        public TranscriptionRealTimeProcessor(string key, string region, byte[] channelContent, int channel, string language, ILogger log)
+        public TranscriptionRealTimeProcessor(string key, string region, string fileSource, byte[] channelContent, int channel, string language, ILogger log)
         {
             this.log = log;
             this.UseBaseModel = true;
             this.SubscriptionKey = key;
             this.Region = region;
+            this.fileSource = fileSource;
             this.channelContent = channelContent;
             this.channel = channel;
 
@@ -80,14 +82,17 @@ namespace FetchTranscription
         /// </summary>
         /// <param name="sender">The source of the event.</param>
         /// <param name="e">The <see cref="RoutedEventArgs"/> instance containing the event data.</param>
-        private void StartTranscription(string language, string region, byte[] channel)
+        private void StartTranscription(string language, string region, byte[] channelContent)
         {
-            wavFileName = channel;
             this.Region = region;
             this.RecognitionLanguage = language;
             stopBaseRecognitionTaskCompletionSource = new TaskCompletionSource<int>();
 
-            Task.Run(async () => { await CreateRecognizer().ConfigureAwait(false); });
+            Task.Run(async () =>
+                {
+                    await CreateRecognizer(channelContent).ConfigureAwait(false);
+                });
+
         }
 
         /// <summary>
@@ -96,7 +101,7 @@ namespace FetchTranscription
         /// If input source is audio file, creates recognizer with audio file otherwise with default mic
         /// Waits on RunRecognition.
         /// </summary>
-        private async Task CreateRecognizer()
+        private async Task CreateRecognizer(byte[] channel)
         {
             // Todo: suport users to specifiy a different region.
             var config = SpeechConfig.FromSubscription(this.SubscriptionKey, this.Region);
@@ -106,7 +111,7 @@ namespace FetchTranscription
             SpeechRecognizer basicRecognizer;
 
             PushAudioInputStream pushStream = AudioInputStream.CreatePushStream();
-            pushStream.Write(channelContent);
+            pushStream.Write(channel);
             pushStream.Close();
             using (var audioInput = AudioConfig.FromStreamInput(pushStream))
             {
@@ -206,36 +211,47 @@ namespace FetchTranscription
             }
         }
 
-        private void CreateTranscriptJson()
+        private string CreateTranscriptJson()
         {
-            if (log != null)
-            {
-                log.LogInformation($"Found {0} final results. Creating JSON.", FinalResultsCumulative.Count);
-            }
-
             List<RecognizedPhrase> recognizedPhrases = new List<RecognizedPhrase>();
             int totalduration = 0;
             string totaldisplay = string.Empty;
             string totallexical = string.Empty;
             string totalitn = string.Empty;
             string totalmasked = string.Empty;
-            string space = " ";
-            Console.WriteLine("final results collected:{0}", FinalResultsCumulative.Count);
+
+            // var log = (rt == RecoType.Base) ? this.baseModelLogText : this.customModelLogText;
+            // source.TrySetResult(0);
             foreach (var utt in FinalResultsCumulative)
             {
-                totaldisplay = totaldisplay + utt.DisplayText + space;
+                totaldisplay = totaldisplay + utt.DisplayText.PadRight(1, ' ');
+
+                if (utt.NBest != null && utt.NBest.Count > 0)
+                {
+                    totallexical = totallexical + utt.NBest[0].Lexical.PadRight(1, ' ');
+                    totalitn = totalitn + utt.NBest[0].ITN.PadRight(1, ' ');
+                    totalmasked = totalmasked + utt.NBest[0].MaskedITN.PadRight(1, ' ');
+                }
+
                 totalduration = totalduration + utt.Duration;
 
                 var durationTicks = new TimeSpan(0, 0, 0, 0, utt.Duration).Ticks;
                 var offsetTicks = new TimeSpan(0, 0, 0, 0, utt.Offset).Ticks;
-                RecognizedPhrase recognizedPhrase = new RecognizedPhrase(utt.RecognitionStatus, channel, 0, utt.Offset.ToString(CultureInfo.InvariantCulture), utt.Duration.ToString(CultureInfo.InvariantCulture), offsetTicks, durationTicks, utt.NBest);
+                RecognizedPhrase recognizedPhrase = new RecognizedPhrase(utt.RecognitionStatus, this.channel, 0, utt.Offset.ToString(CultureInfo.InvariantCulture.NumberFormat), utt.Duration.ToString(CultureInfo.InvariantCulture.NumberFormat), offsetTicks, durationTicks, utt.NBest);
                 recognizedPhrases.Add(recognizedPhrase);
             }
 
             var totalDurationTicks = new TimeSpan(0, 0, 0, 0, totalduration).Ticks;
-            CombinedRecognizedPhrase combined = new CombinedRecognizedPhrase(0, totallexical, totalitn, totalmasked, totaldisplay, null);
-            SpeechTranscript transcript = new SpeechTranscript(string.Empty, string.Empty, totalDurationTicks, totalduration.ToString(CultureInfo.InvariantCulture), new List<CombinedRecognizedPhrase> { combined }, recognizedPhrases);
-            var json = JsonConvert.SerializeObject(transcript);
+            CombinedRecognizedPhrase combined = new CombinedRecognizedPhrase(this.channel, totallexical, totalitn, totalmasked, totaldisplay, null);
+            string timestamp = DateTime.UtcNow.ToString(CultureInfo.InvariantCulture.DateTimeFormat);
+            SpeechTranscript transcript = new SpeechTranscript(this.fileSource, timestamp, totalDurationTicks, totalduration.ToString(CultureInfo.InvariantCulture.NumberFormat), new List<CombinedRecognizedPhrase> { combined }, recognizedPhrases);
+
+            if (log != null)
+            {
+                log.LogInformation($"Speech transcript JSON created at : {0} UTC", timestamp);
+            }
+
+            return JsonConvert.SerializeObject(transcript);
         }
     }
 }
